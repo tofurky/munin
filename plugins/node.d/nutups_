@@ -44,6 +44,9 @@ voltages() {
 			echo "${i}.min 0"
 		done
 	else
+		# avoid constant "Init SSL without certificate database" messages. only honored in newer (>= 2.8.1) nut versions.
+		export NUT_QUIET_INIT_SSL=1
+
 		"$UPSC" "$UPS" | sed -n '/^[^:]*volt/{
 					s/://
 					/nominal/s/.* /nominal.value /

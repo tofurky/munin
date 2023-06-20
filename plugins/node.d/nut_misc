@@ -89,6 +89,9 @@ if ( defined $ARGV[0] and $ARGV[0] eq 'config' ) {
 }
 
 sub fetch_values {
+	# avoid constant "Init SSL without certificate database" messages. only honored in newer (>= 2.8.1) nut versions.
+	$ENV{NUT_QUIET_INIT_SSL} = 1;
+
 	my $data = `$config{upsc} $config{upsname}`;
 	while ($data =~ /([a-z.]+): (.+)\b/g) {
 		my $label = $1;
