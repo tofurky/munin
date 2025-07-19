@@ -23,6 +23,12 @@ my $graph_width = $ENV{'graph_width'} ? $ENV{'graph_width'} : 400;
 # Should lables be trimmed to fit graph width?
 my $trim_labels = $ENV{'trim_labels'};
 
+# Should udev "by-id" aliases be used?
+my $use_udev = $ENV{'use_udev'};
+
+# Should shortened (to reduce graph width) udev "by-id" aliases be used?
+my $use_shortened_udev = $ENV{'use_shortened_udev'};
+
 my $plugin_name = $Munin::Plugin::me;
 
 # Check for multigraph capabilities
@@ -487,6 +493,8 @@ sub parse_diskstats {
 
         if ( $device =~ /^dm-\d+$/ ) {
             $pretty_device = translate_devicemapper_name($device);
+        } elsif ( ($use_udev || $use_shortened_udev) && $device =~ /^(sd[a-z]+|nvme\d+n\d+)$/ ) {
+            $pretty_device = translate_dev_to_alias($device);
         }
 
         $pretty_device ||= $device;
@@ -655,6 +663,36 @@ sub translate_lvm_name {
 
     }
     return;
+}
+
+# translate_dev_to_alias
+#
+# Tries to find an alias based on a device, such as "sda"
+# Returns either a resolved alias or the original devicename
+
+sub translate_dev_to_alias {
+    my ($device) = @_;
+
+    my $rdev = ( stat("/dev/$device") )[6];
+
+    my @aliasdevices = glob "/dev/disk/by-id/*";
+
+    foreach my $entry (@aliasdevices) {
+        # prefer the human-readable aliases
+        next if ($entry =~ /\/(nvme-eui\.|wwn-)/);
+
+        if ($rdev == ( stat($entry) )[6]) {
+            my $full_name = basename($entry);
+            if ($use_shortened_udev) {
+                # nvme-Samsung_SSD_9100_PRO_4TB_ABBACAB123 -> Samsung_SSD_9100_PRO_4TB-B123
+                $full_name =~ s/^[^\-]+-(.*)_[^_]+([^_]{4})$/$1-$2/g;
+            }
+            return $full_name;
+        }
+    }
+
+    # Return original string if the alias can't be found.  
+    return $device;
 }
 
 # find_devicemapper_major
@@ -867,14 +905,14 @@ sub do_config_device {
     for my $device ( sort keys %cur_diskstats ) {
 
         # Nice name for graph
-        my $pretty_device = $cur_diskstats{$device}->{'pretty_device_name'};
+        my $pretty_device = (($use_udev || $use_shortened_udev) ? '' : '/dev') . $cur_diskstats{$device}->{'pretty_device_name'};
         my $graph_id      = $cur_diskstats{$device}->{'graph_id'};
 
         if ( $cur_diskstats{$device}->{'does_latency'} ) {
 
             print <<"EOF";
 multigraph ${plugin_name}_latency.$graph_id
-graph_title Average latency for /dev/$pretty_device
+graph_title Average latency for $pretty_device
 graph_args --base 1000 --logarithmic
 graph_vlabel seconds
 graph_category disk
@@ -907,7 +945,7 @@ EOF
 
             print <<"EOF";
 multigraph ${plugin_name}_utilization.$graph_id
-graph_title Disk utilization for /dev/$pretty_device
+graph_title Disk utilization for $pretty_device
 graph_args --base 1000 --lower-limit 0 --upper-limit 100 --rigid
 graph_vlabel % busy
 graph_category disk
@@ -925,7 +963,7 @@ EOF
 
         print <<"EOF";
 multigraph ${plugin_name}_throughput.$graph_id
-graph_title Disk throughput for /dev/$pretty_device
+graph_title Disk throughput for $pretty_device
 graph_args --base 1024
 graph_vlabel Pr \${graph_period} read (-) / write (+)
 graph_category disk
@@ -959,7 +997,7 @@ EOF
 
         print <<"EOF";
 multigraph ${plugin_name}_iops.$graph_id
-graph_title IOs for /dev/$pretty_device
+graph_title IOs for $pretty_device
 graph_args --base 1000
 graph_vlabel Units read (-) / write (+)
 graph_category disk
